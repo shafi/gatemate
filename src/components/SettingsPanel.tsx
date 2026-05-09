@@ -114,7 +114,7 @@ function KeyField({
 }
 
 export default function SettingsPanel({ keys, onChange, onClose }: Props) {
-  const [draft, setDraft] = useState<ApiKeys>({ anthropic: '', googleMaps: '', aviationStack: '', ...keys })
+  const [draft, setDraft] = useState<ApiKeys>({ ...{ anthropic: '', googleMaps: '', aviationStack: '' }, ...keys })
   const [show, setShow] = useState({ anthropic: false, googleMaps: false, aviationStack: false })
   const [tests, setTests] = useState<Record<keyof ApiKeys, TestState>>({
     anthropic: 'idle', googleMaps: 'idle', aviationStack: 'idle',
