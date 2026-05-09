@@ -95,27 +95,46 @@ export default function TravelStep({ travel, onChange, onNext, onBack, loading, 
     }
     setLocateState('loading')
     setLocateError('')
+
+    // Step 1: get GPS coords
+    let latitude: number, longitude: number
     try {
       const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
-        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10_000 })
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          timeout: 15_000,
+          maximumAge: 60_000,
+          enableHighAccuracy: false,
+        })
       )
-      const { latitude, longitude } = pos.coords
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`,
-        { headers: { 'Accept-Language': 'en-US,en' } }
-      )
-      const data = await res.json()
-      const address = data.address
-        ? buildNominatimAddress(data.address as Record<string, string>)
-        : data.display_name
-      set('origin', address || `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`)
-      setLocateState('done')
+      latitude = pos.coords.latitude
+      longitude = pos.coords.longitude
     } catch (e) {
-      const msg = e instanceof GeolocationPositionError
-        ? (e.code === 1 ? 'Location access denied' : e.code === 2 ? 'Position unavailable' : 'Location timed out')
-        : 'Could not determine location'
+      const code = (e as GeolocationPositionError).code
+      const msg = code === 1 ? 'Location access denied — allow location in browser settings'
+                : code === 2 ? 'Position unavailable — try again'
+                : 'Location request timed out — try again'
       setLocateError(msg)
       setLocateState('error')
+      return
+    }
+
+    // Step 2: reverse geocode with Nominatim
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&zoom=16`,
+        { headers: { 'Accept-Language': 'en-US,en', 'User-Agent': 'GateMate/1.0' } }
+      )
+      if (!res.ok) throw new Error(`Nominatim error ${res.status}`)
+      const data = await res.json()
+      const addr = data.address as Record<string, string> | undefined
+      const address = addr ? buildNominatimAddress(addr) : ''
+      // Fall back through progressively simpler representations
+      set('origin', address || data.display_name || `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`)
+      setLocateState('done')
+    } catch {
+      // Geocoding failed but we have coordinates — use them
+      set('origin', `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`)
+      setLocateState('done')
     }
   }
 

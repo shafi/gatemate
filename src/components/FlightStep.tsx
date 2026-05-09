@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { FlightInfo, ApiKeys } from '../types'
 import { lookupFlight } from '../services/flightLookup'
-import { lookupFlightWithClaude } from '../services/claudeLookup'
+import { lookupScheduleWithClaude } from '../services/claudeLookup'
 
 interface Props {
   flight: FlightInfo
@@ -67,9 +67,69 @@ export default function FlightStep({ flight, onChange, onNext, keys }: Props) {
     setLookupError('')
     setLookupInfo('')
     setLookupSource(null)
+    setClaudeConfidence(null)
 
+    // Step 1: adsbdb for accurate route data (airline, airports, cities, isInternational)
+    let routeResult: Awaited<ReturnType<typeof lookupFlight>> | null = null
+    try {
+      routeResult = await lookupFlight(flight.flightNumber)
+    } catch {
+      // adsbdb failed — will try Claude-only fallback below
+    }
+
+    if (routeResult) {
+      const airlineName = resolveAirlineName(routeResult.airlineIata, routeResult.airline)
+      const updated: FlightInfo = {
+        ...flight,
+        airline: airlineName,
+        airport: routeResult.originIata,
+        isInternational: routeResult.isInternational,
+      }
+
+      // Step 2: Claude with web_search for departure time / terminal / gate
+      if (keys?.anthropic) {
+        try {
+          const schedule = await lookupScheduleWithClaude(
+            flight.flightNumber,
+            routeResult.originIata,
+            routeResult.destinationIata,
+            flight.departureDate,
+            keys.anthropic
+          )
+          updated.scheduledDeparture = schedule.scheduledDeparture || flight.scheduledDeparture
+          updated.terminal = schedule.terminal || flight.terminal
+          updated.gate = schedule.gate || flight.gate
+          setLookupSource('claude')
+          setClaudeConfidence(schedule.confidence)
+          if (schedule.note) setLookupInfo(
+            `${routeResult.originCity} (${routeResult.originIata}) → ${routeResult.destinationCity} (${routeResult.destinationIata})` +
+            (routeResult.isInternational ? ' · International' : ' · Domestic') +
+            ` · ${schedule.note}`
+          )
+        } catch (e) {
+          console.warn('Claude schedule lookup failed:', e)
+          setLookupSource('adsbdb')
+        }
+      } else {
+        setLookupSource('adsbdb')
+      }
+
+      if (!lookupInfo) {
+        setLookupInfo(
+          `${routeResult.originCity} (${routeResult.originIata}) → ${routeResult.destinationCity} (${routeResult.destinationIata})` +
+          (routeResult.isInternational ? ' · International' : ' · Domestic')
+        )
+      }
+
+      onChange(updated)
+      setLookupState('success')
+      return
+    }
+
+    // adsbdb failed entirely — fall back to Claude training data (less accurate)
     if (keys?.anthropic) {
       try {
+        const { lookupFlightWithClaude } = await import('../services/claudeLookup')
         const result = await lookupFlightWithClaude(flight.flightNumber, flight.departureDate, keys.anthropic)
         const airlineName = resolveAirlineName('', result.airline)
         onChange({
@@ -91,30 +151,12 @@ export default function FlightStep({ flight, onChange, onNext, keys }: Props) {
         setLookupState('success')
         return
       } catch (e) {
-        // Claude failed — fall through to adsbdb, but note the error
-        console.warn('Claude lookup failed, falling back to adsbdb:', e)
+        console.warn('Claude fallback failed:', e)
       }
     }
 
-    try {
-      const result = await lookupFlight(flight.flightNumber)
-      const airlineName = resolveAirlineName(result.airlineIata, result.airline)
-      onChange({
-        ...flight,
-        airline: airlineName,
-        airport: result.originIata,
-        isInternational: result.isInternational,
-      })
-      setLookupInfo(
-        `${result.originCity} (${result.originIata}) → ${result.destinationCity} (${result.destinationIata})` +
-        (result.isInternational ? ' · International' : ' · Domestic')
-      )
-      setLookupSource('adsbdb')
-      setLookupState('success')
-    } catch (e) {
-      setLookupError(e instanceof Error ? e.message : 'Lookup failed')
-      setLookupState('error')
-    }
+    setLookupError('Flight not found — fill in details manually below')
+    setLookupState('error')
   }
 
   const canProceed = flight.flightNumber && flight.airline && flight.departureDate &&
@@ -186,7 +228,7 @@ export default function FlightStep({ flight, onChange, onNext, keys }: Props) {
         {lookupState === 'idle' && (
           <p className="text-xs text-slate-500 mt-1">
             {keys?.anthropic
-              ? 'Claude AI will look up airline, route, departure time, terminal & gate'
+              ? 'Route from adsbdb · departure time & terminal from Claude AI web search'
               : 'Auto-fills airline, airport & flight type — no API key needed'}
           </p>
         )}
