@@ -56,6 +56,7 @@ export default function FlightStep({ flight, onChange, onNext, keys }: Props) {
   const [lookupError, setLookupError] = useState('')
   const [lookupInfo, setLookupInfo] = useState<string>('')
   const [lookupSource, setLookupSource] = useState<'claude' | 'adsbdb' | null>(null)
+  const [claudeConfidence, setClaudeConfidence] = useState<'high' | 'medium' | 'low' | null>(null)
 
   const set = (k: keyof FlightInfo, v: string | boolean) =>
     onChange({ ...flight, [k]: v })
@@ -86,10 +87,12 @@ export default function FlightStep({ flight, onChange, onNext, keys }: Props) {
           (result.note ? ` · ${result.note}` : '')
         )
         setLookupSource('claude')
+        setClaudeConfidence(result.confidence)
         setLookupState('success')
         return
-      } catch {
-        // fall through to adsbdb
+      } catch (e) {
+        // Claude failed — fall through to adsbdb, but note the error
+        console.warn('Claude lookup failed, falling back to adsbdb:', e)
       }
     }
 
@@ -158,12 +161,21 @@ export default function FlightStep({ flight, onChange, onNext, keys }: Props) {
         </div>
 
         {lookupState === 'success' && lookupInfo && (
-          <div className="mt-2 flex items-center gap-1.5 text-xs text-emerald-400">
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-emerald-400">
             <span>✓</span>
             <span>{lookupInfo}</span>
-            <span className="text-slate-500 ml-1">
+            <span className="text-slate-500">
               — via {lookupSource === 'claude' ? 'Claude AI' : 'adsbdb.com'}
             </span>
+            {lookupSource === 'claude' && claudeConfidence && claudeConfidence !== 'high' && (
+              <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                claudeConfidence === 'medium'
+                  ? 'bg-yellow-900/50 text-yellow-400'
+                  : 'bg-red-900/50 text-red-400'
+              }`}>
+                {claudeConfidence} confidence — verify times
+              </span>
+            )}
           </div>
         )}
         {lookupState === 'error' && lookupError && (

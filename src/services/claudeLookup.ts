@@ -52,22 +52,18 @@ export async function lookupFlightWithClaude(
   const response = await client.messages.create({
     model: 'claude-haiku-4-5',
     max_tokens: 1024,
-    tools: [
-      { type: 'web_search_20260209', name: 'web_search' },
-      EXTRACT_TOOL,
-    ],
-    tool_choice: { type: 'any' },
+    tools: [EXTRACT_TOOL],
+    tool_choice: { type: 'tool', name: 'submit_flight_info' },
     messages: [{
       role: 'user',
       content: `Look up flight ${flightNumber.toUpperCase()} scheduled for ${dateStr}.
 
-Find: airline name, departure airport (IATA code + city), arrival airport (IATA code + city), scheduled departure time (HH:MM 24h), terminal, and gate if available.
+Using your training knowledge, identify: the airline, departure airport (IATA code + city), arrival airport (IATA code + city), typical scheduled departure time (HH:MM 24h), departure terminal, and gate if known.
 
-Then call submit_flight_info with everything you found. If departure time varies by day of week or you cannot confirm for the specific date, use your best estimate and set confidence accordingly.`,
+Call submit_flight_info with everything you know. Set confidence to "high" for well-known routes you're confident about, "medium" if schedule varies by day, or "low" if uncertain. Include a note if the schedule varies by season or day of week.`,
     }],
   })
 
-  // Find the submit_flight_info tool call in response
   for (const block of response.content) {
     if (block.type === 'tool_use' && block.name === 'submit_flight_info') {
       const input = block.input as ClaudeLookupResult
