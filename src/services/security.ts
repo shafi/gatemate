@@ -1,9 +1,7 @@
-// TSA security wait time estimates in minutes
-// Based on MyTSA data patterns and airport size
+// TSA security wait time estimates and live data
 
 export type AirportSize = 'small' | 'medium' | 'large' | 'major'
 
-// Classify airport by IATA code
 const MAJOR_AIRPORTS = new Set(['ATL','LAX','ORD','DFW','DEN','JFK','SFO','SEA','LAS','MCO','EWR','CLT','PHX','IAH','MIA'])
 const LARGE_AIRPORTS = new Set(['BOS','MSP','DTW','FLL','LGA','BWI','SLC','SAN','TPA','PDX','HNL','MDW','STL','OAK','RDU','AUS','BNA','SMF','MCI','PIT'])
 
@@ -15,7 +13,6 @@ export function classifyAirport(iataCode: string): AirportSize {
   return 'small'
 }
 
-// Time of day categories
 function getTimeCategory(date: Date): 'early' | 'morning_rush' | 'midday' | 'afternoon' | 'evening' | 'late_night' {
   const hour = date.getHours()
   if (hour < 5) return 'late_night'
@@ -27,7 +24,6 @@ function getTimeCategory(date: Date): 'early' | 'morning_rush' | 'midday' | 'aft
   return 'late_night'
 }
 
-// Security wait estimates (minutes) by airport size and time of day
 const SECURITY_WAIT_ESTIMATES: Record<AirportSize, Record<ReturnType<typeof getTimeCategory>, { standard: number; precheck: number }>> = {
   major: {
     late_night:    { standard: 5,  precheck: 3 },
@@ -63,7 +59,6 @@ const SECURITY_WAIT_ESTIMATES: Record<AirportSize, Record<ReturnType<typeof getT
   },
 }
 
-// Additional time for international departures (customs/passport control on arrival is separate)
 const INTERNATIONAL_ADD_MINUTES = 5
 
 export interface SecurityEstimate {
@@ -72,6 +67,37 @@ export interface SecurityEstimate {
   totalMinutes: number
   airportSize: AirportSize
   timeCategory: string
+  waitSource: 'tsa_api' | 'estimate'
+}
+
+// Fetch real-time TSA wait times from the TSA public API
+export async function fetchTsaWaitTime(
+  airportCode: string,
+  hasTsaPrecheck: boolean
+): Promise<number | null> {
+  try {
+    const res = await fetch(
+      `https://waittime.tsa.dhs.gov/api/airport/${airportCode.toUpperCase()}`,
+      { signal: AbortSignal.timeout(5000) }
+    )
+    if (!res.ok) return null
+    const data = await res.json()
+
+    // API returns array of checkpoints — average across all open checkpoints
+    const checkpoints: Array<Record<string, unknown>> = Array.isArray(data) ? data : (data?.data ?? [])
+    if (!checkpoints.length) return null
+
+    const key = hasTsaPrecheck ? 'wait_mins_precheck' : 'wait_mins_standard'
+    const fallbackKey = 'wait_mins'
+    const times = checkpoints
+      .map(c => Number(c[key] ?? c[fallbackKey] ?? c['waittime'] ?? NaN))
+      .filter(n => !isNaN(n) && n >= 0)
+
+    if (!times.length) return null
+    return Math.round(times.reduce((a, b) => a + b, 0) / times.length)
+  } catch {
+    return null
+  }
 }
 
 export function estimateSecurityTime(
@@ -79,19 +105,21 @@ export function estimateSecurityTime(
   departureTime: Date,
   hasTsaPrecheck: boolean,
   isInternational: boolean,
-  checkingBags: boolean
+  checkingBags: boolean,
+  tsaLiveWaitMinutes?: number | null
 ): SecurityEstimate {
   const airportSize = classifyAirport(airportCode)
   const timeCategory = getTimeCategory(departureTime)
-  const estimates = SECURITY_WAIT_ESTIMATES[airportSize][timeCategory]
+  const staticEstimate = SECURITY_WAIT_ESTIMATES[airportSize][timeCategory]
 
-  const waitMinutes = hasTsaPrecheck ? estimates.precheck : estimates.standard
-  // Processing: remove shoes/belt/laptop (standard) vs just walking through (precheck)
+  const waitSource = tsaLiveWaitMinutes != null ? 'tsa_api' : 'estimate'
+  const waitMinutes = tsaLiveWaitMinutes != null
+    ? tsaLiveWaitMinutes
+    : (hasTsaPrecheck ? staticEstimate.precheck : staticEstimate.standard)
+
   const processingMinutes = hasTsaPrecheck ? 3 : 8
-  // Bag check adds time at check-in counter
   const bagCheckMinutes = checkingBags ? 10 : 0
   const internationalAdd = isInternational ? INTERNATIONAL_ADD_MINUTES : 0
-
   const totalMinutes = waitMinutes + processingMinutes + bagCheckMinutes + internationalAdd
 
   return {
@@ -100,5 +128,6 @@ export function estimateSecurityTime(
     totalMinutes,
     airportSize,
     timeCategory,
+    waitSource,
   }
 }

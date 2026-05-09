@@ -126,6 +126,8 @@ export default function App() {
               onNext={handleCalculate}
               onBack={() => setStep(0)}
               loading={loading}
+              flight={flight}
+              keys={keys}
             />
           )}
 

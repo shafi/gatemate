@@ -1,7 +1,7 @@
 import type { FlightInfo, TravelInfo, ApiKeys, CalculationResult, TimelineBreakdown } from '../types'
 import { fetchFlightStatus } from './flightStatus'
 import { fetchTravelTime, TRANSPORT_BUFFERS } from './traffic'
-import { estimateSecurityTime } from './security'
+import { estimateSecurityTime, fetchTsaWaitTime } from './security'
 
 const BUFFER_MINUTES = 2
 
@@ -51,13 +51,15 @@ export async function calculate(
   const walkToGateMinutes = travel.gateDistanceMinutes
   const startSecurityAt = new Date(atGateAt.getTime() - walkToGateMinutes * 60_000)
 
-  // Security time
+  // Security time — try live TSA data first
+  const tsaLiveWait = await fetchTsaWaitTime(flight.airport, travel.hasTsaPrecheck)
   const securityEst = estimateSecurityTime(
     flight.airport,
     scheduledDep,
     travel.hasTsaPrecheck,
     flight.isInternational,
-    travel.checkingBags
+    travel.checkingBags,
+    tsaLiveWait
   )
 
   // Arrive airport time
@@ -93,8 +95,8 @@ export async function calculate(
     minutes: securityEst.waitMinutes + securityEst.processingMinutes,
     icon: travel.hasTsaPrecheck ? '⚡' : '🔍',
     detail: travel.hasTsaPrecheck
-      ? `TSA PreCheck — ${securityEst.timeCategory} at ${securityEst.airportSize} airport`
-      : `Standard — ${securityEst.timeCategory} at ${securityEst.airportSize} airport`,
+      ? `TSA PreCheck — ${securityEst.waitSource === 'tsa_api' ? 'live TSA data' : `${securityEst.timeCategory} at ${securityEst.airportSize} airport`}`
+      : `Standard — ${securityEst.waitSource === 'tsa_api' ? 'live TSA data' : `${securityEst.timeCategory} at ${securityEst.airportSize} airport`}`,
   })
 
   if (flight.isInternational) {
@@ -132,6 +134,9 @@ export async function calculate(
   }
   if (traffic.source === 'estimate') {
     warnings.push('Travel time estimated — add Google Maps key for live traffic.')
+  }
+  if (securityEst.waitSource === 'estimate') {
+    warnings.push('Security wait estimated — TSA live data unavailable for this airport.')
   }
   if (flightStatus.status === 'cancelled') {
     warnings.push('⚠️ Flight appears CANCELLED — verify with airline.')
