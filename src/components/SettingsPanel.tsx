@@ -12,11 +12,21 @@ type TestState = 'idle' | 'testing' | 'ok' | 'fail'
 
 async function testGoogleMaps(key: string): Promise<boolean> {
   try {
-    const res = await fetch(
-      `https://maps.googleapis.com/maps/api/directions/json?origin=New+York&destination=JFK+Airport&key=${key}`
-    )
+    const res = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': key,
+        'X-Goog-FieldMask': 'routes.staticDuration',
+      },
+      body: JSON.stringify({
+        origin: { address: 'New York, NY, USA' },
+        destination: { address: 'John F. Kennedy International Airport, NY, USA' },
+        travelMode: 'DRIVE',
+      }),
+    })
     const data = await res.json()
-    return data.status === 'OK' || data.status === 'ZERO_RESULTS'
+    return Array.isArray(data.routes) && data.routes.length > 0
   } catch {
     return false
   }
@@ -193,7 +203,7 @@ export default function SettingsPanel({ keys, onChange, onClose }: Props) {
             testState={tests.googleMaps}
             footer={
               <span>
-                Enable <span className="text-slate-400">Directions API</span> at console.cloud.google.com
+                Enable <span className="text-slate-400">Routes API</span> at console.cloud.google.com
               </span>
             }
           />

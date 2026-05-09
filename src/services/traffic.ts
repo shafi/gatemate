@@ -40,26 +40,41 @@ export async function fetchTravelTime(
   }
 
   try {
-    const gmMode = mode === 'uber' ? 'driving' : mode
-    const timestamp = Math.floor(departureTime.getTime() / 1000)
-    const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&mode=${gmMode}&departure_time=${timestamp}&traffic_model=best_guess&key=${apiKey}`
+    const routesMode = mode === 'uber' ? 'DRIVE' : mode === 'driving' ? 'DRIVE' : mode === 'transit' ? 'TRANSIT' : 'WALK'
+    const body: Record<string, unknown> = {
+      origin: { address: origin },
+      destination: { address: destination },
+      travelMode: routesMode,
+    }
+    // Traffic-aware routing only available for driving
+    if (routesMode === 'DRIVE') {
+      body.routingPreference = 'TRAFFIC_AWARE'
+      body.departureTime = departureTime.toISOString()
+    }
 
-    const res = await fetch(url)
+    const res = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': apiKey,
+        'X-Goog-FieldMask': 'routes.duration,routes.staticDuration',
+      },
+      body: JSON.stringify(body),
+    })
     if (!res.ok) throw new Error('API error')
     const data = await res.json()
 
-    if (data.status !== 'OK' || !data.routes?.[0]) throw new Error('No route')
+    if (!data.routes?.[0]) throw new Error('No route')
 
-    const leg = data.routes[0].legs[0]
-    const durationMinutes = Math.round(leg.duration.value / 60)
-    const durationWithTrafficMinutes = Math.round(
-      (leg.duration_in_traffic?.value ?? leg.duration.value) / 60
-    )
+    const route = data.routes[0]
+    // duration = with traffic (when TRAFFIC_AWARE), staticDuration = without traffic
+    const durationMinutes = Math.round(parseInt(route.duration ?? route.staticDuration) / 60)
+    const staticMinutes = Math.round(parseInt(route.staticDuration) / 60)
 
     return {
-      durationMinutes,
-      durationWithTrafficMinutes,
-      trafficDelay: Math.max(0, durationWithTrafficMinutes - durationMinutes),
+      durationMinutes: staticMinutes,
+      durationWithTrafficMinutes: durationMinutes,
+      trafficDelay: Math.max(0, durationMinutes - staticMinutes),
       source: 'api',
     }
   } catch {
