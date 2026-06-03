@@ -55,7 +55,7 @@ export default function FlightStep({ flight, onChange, onNext, keys }: Props) {
   const [lookupState, setLookupState] = useState<LookupState>('idle')
   const [lookupError, setLookupError] = useState('')
   const [lookupInfo, setLookupInfo] = useState<string>('')
-  const [lookupSource, setLookupSource] = useState<'claude' | 'adsbdb' | null>(null)
+  const [lookupSource, setLookupSource] = useState<'claude' | 'flightaware' | null>(null)
   const [claudeConfidence, setClaudeConfidence] = useState<'high' | 'medium' | 'low' | null>(null)
 
   const set = (k: keyof FlightInfo, v: string | boolean) =>
@@ -97,7 +97,7 @@ export default function FlightStep({ flight, onChange, onNext, keys }: Props) {
       }
     }
 
-    // Fallback: adsbdb (no key needed, route only — no departure time)
+    // Fallback: flight-scraper service (FlightAware + Playwright)
     try {
       const result = await lookupFlight(flight.flightNumber)
       const airlineName = resolveAirlineName(result.airlineIata, result.airline)
@@ -106,12 +106,15 @@ export default function FlightStep({ flight, onChange, onNext, keys }: Props) {
         airline: airlineName,
         airport: result.originIata,
         isInternational: result.isInternational,
+        scheduledDeparture: result.scheduledDeparture || flight.scheduledDeparture,
+        terminal: result.terminal || flight.terminal,
+        gate: result.gate || flight.gate,
       })
       setLookupInfo(
         `${result.originCity} (${result.originIata}) → ${result.destinationCity} (${result.destinationIata})` +
-        (result.isInternational ? ' · International' : ' · Domestic')
+        (result.isInternational ? ' · International' : ' · Domestic/Unknown')
       )
-      setLookupSource('adsbdb')
+      setLookupSource('flightaware')
       setLookupState('success')
     } catch {
       setLookupError('Flight not found — fill in details manually below')
@@ -165,10 +168,10 @@ export default function FlightStep({ flight, onChange, onNext, keys }: Props) {
         {lookupState === 'success' && lookupInfo && (
           <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-emerald-400">
             <span>✓</span>
-            <span>{lookupInfo}</span>
-            <span className="text-slate-500">
-              — via {lookupSource === 'claude' ? 'Claude AI' : 'adsbdb.com'}
-            </span>
+              <span>{lookupInfo}</span>
+              <span className="text-slate-500">
+               — via {lookupSource === 'claude' ? 'Claude AI' : 'FlightAware (Playwright)'}
+              </span>
             {lookupSource === 'claude' && claudeConfidence && claudeConfidence !== 'high' && (
               <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
                 claudeConfidence === 'medium'
@@ -189,7 +192,7 @@ export default function FlightStep({ flight, onChange, onNext, keys }: Props) {
           <p className="text-xs text-slate-500 mt-1">
             {keys?.anthropic
               ? 'Claude AI searches the web for current route, time & terminal'
-              : 'Auto-fills airline, airport & flight type — no API key needed'}
+              : 'Auto-fills from FlightAware via flight-scraper service'}
           </p>
         )}
       </div>

@@ -28,7 +28,7 @@ Gate closes
 When you enter a flight number, GateMate looks up the current route, scheduled departure time, terminal, and gate:
 
 - **With Anthropic key** — Claude searches the web for the current assigned route and schedule. Handles flight number reassignments accurately (e.g. a flight number may fly a different route than cached databases show).
-- **Without Anthropic key** — Falls back to [adsbdb.com](https://api.adsbdb.com) for route and airline data (no departure time).
+- **Without Anthropic key** — Uses the local `flight-scraper` service (Playwright on [flightaware.com](https://www.flightaware.com/live/flight/UAL1095)) to fetch route, scheduled departure, terminal, and gate when available.
 
 ### Security wait times
 
@@ -80,6 +80,12 @@ npm run dev -- --host
 ```
 
 The app runs at `http://localhost:5173`. Add your API keys via the gear icon ⚙️ in the top right — they persist in `localStorage` across sessions.
+
+For non-Claude flight lookup, run the scraper service separately (default `http://localhost:3001`) or set:
+
+```bash
+VITE_FLIGHT_SCRAPER_URL=http://your-scraper-host:3001
+```
 
 ## Building
 
