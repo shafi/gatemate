@@ -8,43 +8,64 @@ export interface FlightLookupResult {
   destinationName: string
   destinationCity: string
   isInternational: boolean
+  scheduledDeparture?: string
+  terminal?: string
+  gate?: string
 }
 
-interface AdsbDbResponse {
-  response: {
-    flightroute?: {
-      callsign_iata: string
-      airline: {
-        name: string
-        iata: string
-      }
-      origin: {
-        iata_code: string
-        name: string
-        municipality: string
-        country_iso_name: string
-      }
-      destination: {
-        iata_code: string
-        name: string
-        municipality: string
-        country_iso_name: string
-      }
+interface FlightScraperResponse {
+  success: boolean
+  data?: {
+    flightNumber: string
+    airline: string
+    origin: {
+      iata: string
+      name: string
+      city: string
     }
+    destination: {
+      iata: string
+      name: string
+      city: string
+    }
+    scheduledDeparture: string
+    terminal?: string
+    gate?: string
   }
+  error?: string
 }
 
-// Normalize flight number to IATA callsign format expected by adsbdb
-// e.g. "AA 123" → "AA123", "aa123" → "AA123"
 function normalizeCallsign(flightNumber: string): string {
   return flightNumber.replace(/\s+/g, '').toUpperCase()
 }
+
+function extractAirlineIata(callsign: string): string {
+  const match = callsign.match(/^[A-Z]{2,3}/)
+  return match?.[0].slice(0, 2) ?? ''
+}
+
+function toTimeInputValue(raw: string): string | undefined {
+  if (!raw) return undefined
+
+  const match = raw.match(/(\d{1,2}):(\d{2})\s*([AP]M)/i)
+  if (!match) return undefined
+
+  const [, h, m, meridiemRaw] = match
+  const meridiem = meridiemRaw.toUpperCase()
+  let hours = Number(h)
+  if (meridiem === 'PM' && hours < 12) hours += 12
+  if (meridiem === 'AM' && hours === 12) hours = 0
+
+  return `${String(hours).padStart(2, '0')}:${m}`
+}
+
+const SCRAPER_BASE_URL = import.meta.env.VITE_FLIGHT_SCRAPER_URL ?? 'http://localhost:3001'
 
 export async function lookupFlight(flightNumber: string): Promise<FlightLookupResult> {
   const callsign = normalizeCallsign(flightNumber)
   if (!callsign) throw new Error('Enter a flight number first')
 
-  const url = `https://api.adsbdb.com/v0/callsign/${callsign}`
+  const url = `${SCRAPER_BASE_URL}/flight/${encodeURIComponent(callsign)}`
   const res = await fetch(url)
 
   if (!res.ok) {
@@ -52,24 +73,25 @@ export async function lookupFlight(flightNumber: string): Promise<FlightLookupRe
     throw new Error(`Lookup failed (${res.status})`)
   }
 
-  const data: AdsbDbResponse = await res.json()
-  const route = data.response?.flightroute
-
-  if (!route) {
-    throw new Error(`No route data found for ${callsign}`)
+  const data: FlightScraperResponse = await res.json()
+  if (!data.success || !data.data) {
+    throw new Error(data.error || `No route data found for ${callsign}`)
   }
 
-  const isInternational = route.origin.country_iso_name !== route.destination.country_iso_name
+  const route = data.data
 
   return {
-    airline: route.airline.name,
-    airlineIata: route.airline.iata,
-    originIata: route.origin.iata_code,
+    airline: route.airline,
+    airlineIata: extractAirlineIata(callsign),
+    originIata: route.origin.iata,
     originName: route.origin.name,
-    originCity: route.origin.municipality,
-    destinationIata: route.destination.iata_code,
+    originCity: route.origin.city,
+    destinationIata: route.destination.iata,
     destinationName: route.destination.name,
-    destinationCity: route.destination.municipality,
-    isInternational,
+    destinationCity: route.destination.city,
+    isInternational: false,
+    scheduledDeparture: toTimeInputValue(route.scheduledDeparture),
+    terminal: route.terminal,
+    gate: route.gate,
   }
 }

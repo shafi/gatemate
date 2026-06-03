@@ -1,0 +1,25 @@
+{
+  "name": "flight-scraper",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "FlightAware scraper using Playwright",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "tsx src/scraper.ts"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "playwright": "^1.42.0",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "@types/node": "^20.11.20",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3"
+  }
+}
