@@ -70,38 +70,34 @@ export async function scrapeFlightAware(flightNumber: string): Promise<FlightDet
     console.log(`Scraping: ${url}`)
     
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 })
-    
-    // Wait for main content
-    await page.waitForTimeout(3000) // Give it time to load
-    
-    // Save screenshot for debugging
-    await page.screenshot({ path: '/tmp/flightaware.png', fullPage: true })
-    console.log('Screenshot saved to /tmp/flightaware.png')
-    
-    // Get page content for debugging
+
+    // Wait for React to hydrate flight data — try known selectors with a generous timeout
+    const knownSelectors = [
+      '[class*="flightHeader"]',
+      '[class*="airport-code"]',
+      '[class*="FlightHeader"]',
+      '[data-testid*="airport"]',
+      '[data-testid*="flight"]',
+      '.airport-iata-code',
+      '.flightPageSummary',
+    ]
+    const selectorList = knownSelectors.join(',')
+    try {
+      await page.waitForSelector(selectorList, { timeout: 15000 })
+    } catch {
+      // No known selector appeared — content may have different structure; continue and log
+    }
+
     const bodyHTML = await page.content()
     if (bodyHTML.includes('captcha') || bodyHTML.includes('Checking your browser')) {
       throw new Error('Captcha detected - FlightAware requires verification')
     }
-    
-    // Log a sample of the HTML to understand structure
-    const sampleSelectors = [
-      'h1', '.flightPageSummaryAirports', '[data-testid]', '.airport-code', 
-      '.flightPageSummary', 'div[class*="flight"]', 'span[class*="airport"]'
-    ]
-    
-    for (const sel of sampleSelectors) {
-      const found = await page.$(sel)
-      if (found) {
-        const text = await found.textContent()
-        const html = await found.innerHTML()
-        console.log(`Found ${sel}:`, text?.substring(0, 100), '| HTML:', html?.substring(0, 100))
-      }
-    }
-    
-    // Try to find any useful containers
-    const allText = await page.textContent('body')
-    console.log('Page contains:', allText?.substring(0, 500))
+
+    // Log key structural elements for selector debugging
+    const headings = await page.$$eval('h1,h2', els => els.map(e => e.textContent?.trim()).filter(Boolean).slice(0, 5))
+    console.log('Headings:', JSON.stringify(headings))
+    const bodyText = await page.textContent('body')
+    console.log('Body snippet:', bodyText?.replace(/\s+/g, ' ').substring(0, 800))
 
     // Extract flight details using a function string to avoid compilation issues
     const details = await page.evaluate<ScrapedDetails>(`(function() {
