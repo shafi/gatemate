@@ -47,7 +47,14 @@ async function getBrowser(): Promise<Browser> {
     browserInstance = await launch({
       headless: true,
       humanize: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-zygote',
+        '--single-process',
+      ],
     })
   }
   return browserInstance
