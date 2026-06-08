@@ -59,7 +59,7 @@ function toTimeInputValue(raw: string): string | undefined {
   return `${String(hours).padStart(2, '0')}:${m}`
 }
 
-const SCRAPER_BASE_URL = import.meta.env.VITE_FLIGHT_SCRAPER_URL ?? 'http://localhost:3001'
+const SCRAPER_BASE_URL = import.meta.env.VITE_FLIGHT_SCRAPER_URL ?? '/api'
 
 export async function lookupFlight(flightNumber: string): Promise<FlightLookupResult> {
   const callsign = normalizeCallsign(flightNumber)
