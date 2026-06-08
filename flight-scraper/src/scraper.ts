@@ -158,22 +158,22 @@ export async function scrapeFlightAware(flightNumber: string): Promise<FlightDet
       await page.goto(historyUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
       await page.waitForSelector('table, [class*="flightHistory"], [class*="historyTable"]', { timeout: 10000 }).catch(() => {})
 
-      // Find the first "Scheduled" row and extract its flight detail URL
+      // Find the first "Scheduled" row and extract its specific flight URL (YYYYMMDD pattern)
       const nextUrl = await page.evaluate((): string | null => {
-        // History table rows — find the first one with "Scheduled" status
+        const datePattern = /\/live\/flight\/\w+\/history\/\d{8}\//
         const rows = Array.from(document.querySelectorAll('tr, [class*="flightRow"], [class*="historyRow"]'))
         for (const row of rows) {
           const text = row.textContent ?? ''
           if (/scheduled/i.test(text)) {
-            const link = row.querySelector('a[href*="/live/flight/"]') as HTMLAnchorElement | null
-            if (link) return link.href
+            const links = Array.from(row.querySelectorAll('a[href]')) as HTMLAnchorElement[]
+            const dated = links.find(a => datePattern.test(a.href))
+            if (dated) return dated.href.replace(/\/(tracklog|route|graph).*/, '')
           }
         }
-        // Fallback: first link whose href matches the history pattern with a future date
-        const links = Array.from(document.querySelectorAll('a[href*="/live/flight/"]')) as HTMLAnchorElement[]
-        const historyPattern = /\/live\/flight\/\w+\/history\/\d{8}\//
-        const future = links.find(a => historyPattern.test(a.href))
-        return future ? future.href.replace(/\/tracklog.*/, '') : null
+        // Fallback: any dated history link on the page
+        const allLinks = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[]
+        const dated = allLinks.find(a => datePattern.test(a.href))
+        return dated ? dated.href.replace(/\/(tracklog|route|graph).*/, '') : null
       })
       console.log('nextUrl:', nextUrl)
 
