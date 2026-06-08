@@ -97,7 +97,19 @@ export async function scrapeFlightAware(flightNumber: string): Promise<FlightDet
     const headings = await page.$$eval('h1,h2', els => els.map(e => e.textContent?.trim()).filter(Boolean).slice(0, 5))
     console.log('Headings:', JSON.stringify(headings))
     const bodyText = await page.textContent('body')
-    console.log('Body snippet:', bodyText?.replace(/\s+/g, ' ').substring(0, 800))
+    // Log full page in chunks to find flight data structure
+    const fullText = bodyText?.replace(/\s+/g, ' ') ?? ''
+    console.log('Body[0-800]:', fullText.substring(0, 800))
+    console.log('Body[800-1600]:', fullText.substring(800, 1600))
+    console.log('Body[1600-2400]:', fullText.substring(1600, 2400))
+    // Log all elements with airport-like class names
+    const airportEls = await page.$$eval('*', els =>
+      els
+        .filter(e => /airport|iata|origin|destination|depart|arriv/i.test(e.className || e.getAttribute('data-testid') || ''))
+        .slice(0, 10)
+        .map(e => ({ tag: e.tagName, class: e.className, text: e.textContent?.trim().substring(0, 80) }))
+    )
+    console.log('Airport-like elements:', JSON.stringify(airportEls))
 
     // Extract flight details using a function string to avoid compilation issues
     const details = await page.evaluate<ScrapedDetails>(`(function() {
