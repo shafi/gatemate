@@ -93,67 +93,54 @@ export async function scrapeFlightAware(flightNumber: string): Promise<FlightDet
       throw new Error('Captcha detected - FlightAware requires verification')
     }
 
-    // Log key structural elements for selector debugging
-    const headings = await page.$$eval('h1,h2', els => els.map(e => e.textContent?.trim()).filter(Boolean).slice(0, 5))
-    console.log('Headings:', JSON.stringify(headings))
-    const bodyText = await page.textContent('body')
-    // Log time/status elements for selector discovery
-    const timeEls = await page.$$eval('*', els =>
-      els
-        .filter(e => /time|status|depart|arriv|aircraft|gate|terminal/i.test(e.className || ''))
-        .slice(0, 15)
-        .map(e => ({ tag: e.tagName, class: (e.className || '').substring(0, 60), text: e.textContent?.trim().replace(/\s+/g, ' ').substring(0, 60) }))
-    )
-    console.log('Time/status elements:', JSON.stringify(timeEls))
-
-    const details = await page.evaluate<ScrapedDetails>(`(function() {
-      function getText(selector) {
-        const el = document.querySelector(selector);
-        return (el && el.textContent) ? el.textContent.trim() : '';
-      }
-      function getAll(selector) {
-        return Array.from(document.querySelectorAll(selector))
-          .map(e => e.textContent ? e.textContent.trim() : '').filter(Boolean);
+    const details = await page.evaluate<ScrapedDetails>(() => {
+      function getText(selector: string): string {
+        const el = document.querySelector(selector)
+        return el?.textContent?.trim() ?? ''
       }
 
-      // Origin / destination — confirmed working selectors from page analysis
-      const originIata = getText('.flightPageSummaryOrigin .flightPageSummaryAirportCode');
-      const destIata   = getText('.flightPageSummaryDestination .flightPageSummaryAirportCode');
+      const originIata = getText('.flightPageSummaryOrigin .flightPageSummaryAirportCode')
+      const destIata   = getText('.flightPageSummaryDestination .flightPageSummaryAirportCode')
 
-      // City name: full text of origin/dest minus the IATA code
-      const originFull = getText('.flightPageSummaryOrigin');
-      const destFull   = getText('.flightPageSummaryDestination');
-      const originName = originFull.replace(originIata, '').trim().split('\\n').map(s => s.trim()).filter(Boolean).join(', ');
-      const destName   = destFull.replace(destIata, '').trim().split('\\n').map(s => s.trim()).filter(Boolean).join(', ');
+      const originFull = getText('.flightPageSummaryOrigin')
+      const destFull   = getText('.flightPageSummaryDestination')
+      const originName = originFull.replace(originIata, '').trim().split('\n').map((s: string) => s.trim()).filter(Boolean).join(', ')
+      const destName   = destFull.replace(destIata, '').trim().split('\n').map((s: string) => s.trim()).filter(Boolean).join(', ')
 
-      // Times
-      const allTimes = getAll('.flightPageSummaryTimes .time, .flightPageSummaryDepartureTime, .flightPageSummaryArrivalTime, [class*="departureTime"], [class*="arrivalTime"]');
-      const scheduledDep = allTimes[0] || '';
-      const scheduledArr = allTimes[1] || '';
+      // Departure: e.g. "10:17PM EDT (8 minutes early)" → take just the time part
+      const depEl  = document.querySelector('.flightPageSummaryDeparture.flightTime')
+      const arrEl  = document.querySelector('.flightPageSummaryArrival.flightTime')
+      const scheduledDep = depEl?.textContent?.trim().split('(')[0].trim() ?? ''
+      const scheduledArr = arrEl?.textContent?.trim().split('(')[0].trim() ?? ''
 
-      // Status
-      const status = getText('.flightPageSummaryStatus') || getText('[class*="flightStatus"]') || 'Unknown';
+      const statusEl = document.querySelector('.flightPageSummaryStatus')
+      const status = statusEl?.firstChild?.textContent?.trim() ?? getText('.flightPageSummaryStatus') ?? 'Unknown'
 
-      // Airline from h1: "British Airways 292" → "British Airways"
-      const h1 = document.querySelector('h1');
-      const h1Text = h1 ? h1.textContent.trim() : '';
-      const airlineMatch = h1Text.match(/^(.+?)\\s+\\d/);
-      const airline = airlineMatch ? airlineMatch[1].trim() : '';
+      const h1Text = document.querySelector('h1')?.textContent?.trim() ?? ''
+      const airlineMatch = h1Text.match(/^(.+?)\s+\d/)
+      const airline = airlineMatch ? airlineMatch[1].trim() : ''
 
-      // Aircraft
-      const aircraft = getText('.flightPageSummaryAircraftType') || getText('[class*="aircraftType"]') || getText('[class*="aircraft"]') || '';
+      const aircraft = getText('.flightPageSummaryAircraftType') || ''
 
-      // Gate / terminal
-      const gate = getText('[class*="gate"]') || '';
-      const terminal = getText('[class*="terminal"]') || '';
+      // Gate: "left Gate B40 ..." → extract "B40"
+      const gateEl = document.querySelector('.flightPageAirportGate')
+      const gateMatch = gateEl?.textContent?.match(/Gate\s+(\S+)/)
+      const gate = gateMatch ? gateMatch[1] : ''
 
-      // Delay
-      const delayText = getText('[class*="Delay"]') || getText('[class*="delay"]') || '';
-      const delayMatch = delayText.match(/(\\d+)\\s*min/);
-      const delay = delayMatch ? parseInt(delayMatch[1]) : 0;
+      // Terminal: "arriving at Terminal 5" → "5"
+      const termEls = document.querySelectorAll('.flightPageAirportGate')
+      let terminal = ''
+      termEls.forEach((el) => {
+        const m = el.textContent?.match(/Terminal\s+(\S+)/)
+        if (m) terminal = m[1]
+      })
 
-      return { originIata, originName, destIata, destName, scheduledDep, scheduledArr, status, airline, aircraft, gate, terminal, delay };
-    })()`)
+      const delayText = getText('.flightPageSummaryStatus') || ''
+      const delayMatch = delayText.match(/(\d+)\s*min/)
+      const delay = delayMatch ? parseInt(delayMatch[1]) : 0
+
+      return { originIata, originName, destIata, destName, scheduledDep, scheduledArr, status, airline, aircraft, gate, terminal, delay }
+    })
 
     if (!details.originIata || !details.destIata) {
       throw new Error('Could not extract flight details from page')
