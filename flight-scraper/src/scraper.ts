@@ -194,6 +194,15 @@ export async function scrapeFlightAware(flightNumber: string): Promise<FlightDet
   }
 }
 
+export async function warmBrowser(): Promise<void> {
+  try {
+    await getBrowser()
+    console.log('[cloakbrowser] CDP connection warmed up')
+  } catch (err) {
+    console.warn('[cloakbrowser] Warm-up failed (will retry on first request):', err instanceof Error ? err.message : err)
+  }
+}
+
 export async function closeBrowser() {
   if (browserInstance) {
     await browserInstance.close()

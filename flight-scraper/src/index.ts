@@ -111,4 +111,6 @@ process.on('SIGINT', async () => {
 
 app.listen(PORT, () => {
   console.log(`Flight scraper running on port ${PORT} (origin: ${ALLOWED_ORIGIN})`)
+  // Pre-warm the CDP connection so cloakbrowser doesn't idle-timeout before first request
+  import('./scraper.js').then(({ warmBrowser }) => warmBrowser()).catch(() => {})
 })
