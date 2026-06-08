@@ -62,7 +62,7 @@ export async function scrapeFlightAware(flightNumber: string): Promise<FlightDet
     const url = `https://www.flightaware.com/live/flight/${flightNumber.replace(/\s+/g, '')}`
     console.log(`Scraping: ${url}`)
     
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 })
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 })
     
     // Wait for main content
     await page.waitForTimeout(3000) // Give it time to load
