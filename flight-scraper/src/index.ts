@@ -1,7 +1,7 @@
 import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
-import { rateLimit, ipKeyGenerator } from 'express-rate-limit'
+import { rateLimit } from 'express-rate-limit'
 import { scrapeFlightAware, closeBrowser } from './scraper.js'
 
 const app = express()
@@ -27,7 +27,6 @@ const limiter = rateLimit({
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   message: { success: false, error: 'Too many requests — try again in a minute' },
-  keyGenerator: (req) => ipKeyGenerator(req.ip ?? 'unknown'),
 })
 
 // Stricter limit on the expensive scrape endpoint
@@ -37,7 +36,6 @@ const scrapeLimiter = rateLimit({
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   message: { success: false, error: 'Too many flight lookups — try again in a minute' },
-  keyGenerator: (req) => ipKeyGenerator(req.ip ?? 'unknown'),
 })
 
 app.use(limiter)
