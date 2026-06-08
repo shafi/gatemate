@@ -40,13 +40,20 @@ interface ScrapedDetails {
   delay: number
 }
 
-const CDP_URL = process.env.CLOAK_CDP_URL ?? 'ws://localhost:9222'
+// cloakserve requires http:// with ?fingerprint=<seed> — not a raw WebSocket URL
+const CLOAK_HOST = process.env.CLOAK_CDP_URL ?? 'http://localhost:9222'
 
 let browserInstance: Browser | null = null
 
+function cloakUrl(): string {
+  const seed = Math.random().toString(36).substring(2, 10)
+  const base = CLOAK_HOST.replace(/\/+$/, '')
+  return `${base}?fingerprint=${seed}`
+}
+
 async function getBrowser(): Promise<Browser> {
   if (!browserInstance || !browserInstance.isConnected()) {
-    browserInstance = await chromium.connectOverCDP(CDP_URL)
+    browserInstance = await chromium.connectOverCDP(cloakUrl())
   }
   return browserInstance
 }
