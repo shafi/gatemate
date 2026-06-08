@@ -97,82 +97,62 @@ export async function scrapeFlightAware(flightNumber: string): Promise<FlightDet
     const headings = await page.$$eval('h1,h2', els => els.map(e => e.textContent?.trim()).filter(Boolean).slice(0, 5))
     console.log('Headings:', JSON.stringify(headings))
     const bodyText = await page.textContent('body')
-    // Log full page in chunks to find flight data structure
-    const fullText = bodyText?.replace(/\s+/g, ' ') ?? ''
-    console.log('Body[0-800]:', fullText.substring(0, 800))
-    console.log('Body[800-1600]:', fullText.substring(800, 1600))
-    console.log('Body[1600-2400]:', fullText.substring(1600, 2400))
-    // Log all elements with airport-like class names
-    const airportEls = await page.$$eval('*', els =>
+    // Log time/status elements for selector discovery
+    const timeEls = await page.$$eval('*', els =>
       els
-        .filter(e => /airport|iata|origin|destination|depart|arriv/i.test(e.className || e.getAttribute('data-testid') || ''))
-        .slice(0, 10)
-        .map(e => ({ tag: e.tagName, class: e.className, text: e.textContent?.trim().substring(0, 80) }))
+        .filter(e => /time|status|depart|arriv|aircraft|gate|terminal/i.test(e.className || ''))
+        .slice(0, 15)
+        .map(e => ({ tag: e.tagName, class: (e.className || '').substring(0, 60), text: e.textContent?.trim().replace(/\s+/g, ' ').substring(0, 60) }))
     )
-    console.log('Airport-like elements:', JSON.stringify(airportEls))
+    console.log('Time/status elements:', JSON.stringify(timeEls))
 
-    // Extract flight details using a function string to avoid compilation issues
     const details = await page.evaluate<ScrapedDetails>(`(function() {
       function getText(selector) {
         const el = document.querySelector(selector);
         return (el && el.textContent) ? el.textContent.trim() : '';
       }
+      function getAll(selector) {
+        return Array.from(document.querySelectorAll(selector))
+          .map(e => e.textContent ? e.textContent.trim() : '').filter(Boolean);
+      }
 
-      // Get origin and destination
-      const originIata = getText('.flightPageSummaryAirports .origin .airport-code') || 
-                        getText('[data-cy="origin-airport-code"]');
-      const originName = getText('.flightPageSummaryAirports .origin .airport-name') ||
-                        getText('[data-cy="origin-airport-name"]');
-      const destIata = getText('.flightPageSummaryAirports .destination .airport-code') ||
-                      getText('[data-cy="destination-airport-code"]');
-      const destName = getText('.flightPageSummaryAirports .destination .airport-name') ||
-                      getText('[data-cy="destination-airport-name"]');
+      // Origin / destination — confirmed working selectors from page analysis
+      const originIata = getText('.flightPageSummaryOrigin .flightPageSummaryAirportCode');
+      const destIata   = getText('.flightPageSummaryDestination .flightPageSummaryAirportCode');
 
-      // Get times
-      const scheduledDep = getText('.flightPageSummaryTimes .departure .time') ||
-                          getText('[data-cy="scheduled-departure-time"]');
-      const scheduledArr = getText('.flightPageSummaryTimes .arrival .time') ||
-                          getText('[data-cy="scheduled-arrival-time"]');
-      
-      // Get status
-      const status = getText('.flightPageSummaryStatus') || 
-                    getText('[data-cy="flight-status"]') ||
-                    'Unknown';
+      // City name: full text of origin/dest minus the IATA code
+      const originFull = getText('.flightPageSummaryOrigin');
+      const destFull   = getText('.flightPageSummaryDestination');
+      const originName = originFull.replace(originIata, '').trim().split('\\n').map(s => s.trim()).filter(Boolean).join(', ');
+      const destName   = destFull.replace(destIata, '').trim().split('\\n').map(s => s.trim()).filter(Boolean).join(', ');
 
-      // Get airline (from title or header)
-      const titleEl = document.querySelector('h1');
-      const title = titleEl ? titleEl.textContent : '';
-      const airlineMatch = title.match(/^([A-Z][A-Za-z\\s]+)/);
+      // Times
+      const allTimes = getAll('.flightPageSummaryTimes .time, .flightPageSummaryDepartureTime, .flightPageSummaryArrivalTime, [class*="departureTime"], [class*="arrivalTime"]');
+      const scheduledDep = allTimes[0] || '';
+      const scheduledArr = allTimes[1] || '';
+
+      // Status
+      const status = getText('.flightPageSummaryStatus') || getText('[class*="flightStatus"]') || 'Unknown';
+
+      // Airline from h1: "British Airways 292" → "British Airways"
+      const h1 = document.querySelector('h1');
+      const h1Text = h1 ? h1.textContent.trim() : '';
+      const airlineMatch = h1Text.match(/^(.+?)\\s+\\d/);
       const airline = airlineMatch ? airlineMatch[1].trim() : '';
 
-      // Get aircraft type
-      const aircraft = getText('.flightPageSummaryAircraftInfo .aircraftType') ||
-                      getText('[data-cy="aircraft-type"]') ||
-                      '';
+      // Aircraft
+      const aircraft = getText('.flightPageSummaryAircraftType') || getText('[class*="aircraftType"]') || getText('[class*="aircraft"]') || '';
 
-      // Get gate and terminal info
-      const gate = getText('.gateInfo') || getText('[data-cy="gate"]') || '';
-      const terminal = getText('.terminalInfo') || getText('[data-cy="terminal"]') || '';
+      // Gate / terminal
+      const gate = getText('[class*="gate"]') || '';
+      const terminal = getText('[class*="terminal"]') || '';
 
-      // Get delay info
-      const delayText = getText('.flightPageSummaryDelay') || '';
+      // Delay
+      const delayText = getText('[class*="Delay"]') || getText('[class*="delay"]') || '';
       const delayMatch = delayText.match(/(\\d+)\\s*min/);
       const delay = delayMatch ? parseInt(delayMatch[1]) : 0;
 
-      return {
-        originIata: originIata,
-        originName: originName,
-        destIata: destIata,
-        destName: destName,
-        scheduledDep: scheduledDep,
-        scheduledArr: scheduledArr,
-        status: status,
-        airline: airline,
-        aircraft: aircraft,
-        gate: gate,
-        terminal: terminal,
-        delay: delay
-      };
+      return { originIata, originName, destIata, destName, scheduledDep, scheduledArr, status, airline, aircraft, gate, terminal, delay };
     })()`)
 
     if (!details.originIata || !details.destIata) {
