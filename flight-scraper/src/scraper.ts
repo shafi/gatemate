@@ -152,23 +152,31 @@ export async function scrapeFlightAware(flightNumber: string): Promise<FlightDet
       console.log(`Flight is ${details.status} — looking for next scheduled departure`)
 
       // FlightAware shows upcoming scheduled flights as links below the current flight
+      // Log upcoming-flight links for debugging
+      const upcomingLinks = await page.evaluate((): {href: string, text: string}[] => {
+        const links = Array.from(document.querySelectorAll('a[href*="/live/flight/"]')) as HTMLAnchorElement[]
+        return links.slice(0, 20).map(a => ({ href: a.href, text: (a.textContent ?? '').trim().replace(/\s+/g, ' ').substring(0, 80) }))
+      })
+      console.log('Upcoming links sample:', JSON.stringify(upcomingLinks))
+
       const nextUrl = await page.evaluate((): string | null => {
         // Look for a "Scheduled" link/row in the upcoming flights table
-        const links = Array.from(document.querySelectorAll('a[href*="/live/flight/"]'))
+        const links = Array.from(document.querySelectorAll('a[href*="/live/flight/"]')) as HTMLAnchorElement[]
         for (const a of links) {
           const row = a.closest('tr') || a.closest('[class*="row"]') || a.parentElement
           const rowText = row?.textContent ?? ''
           if (/scheduled/i.test(rowText)) {
-            return (a as HTMLAnchorElement).href
+            return a.href
           }
         }
         // Fallback: find a "next departure" style button/link
-        const allLinks = Array.from(document.querySelectorAll('a'))
+        const allLinks = Array.from(document.querySelectorAll('a')) as HTMLAnchorElement[]
         const nextLink = allLinks.find(a =>
           /next.?(departure|flight)|upcoming/i.test(a.textContent ?? '')
         )
-        return nextLink ? (nextLink as HTMLAnchorElement).href : null
+        return nextLink ? nextLink.href : null
       })
+      console.log('nextUrl:', nextUrl)
 
       if (nextUrl) {
         console.log(`Navigating to next scheduled flight: ${nextUrl}`)
