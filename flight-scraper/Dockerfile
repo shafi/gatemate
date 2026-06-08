@@ -18,7 +18,7 @@ COPY tsconfig.json ./
 RUN npm install
 
 # Pre-download stealth Chromium binary at build time
-RUN npx cloakbrowser download
+RUN node -e "import('cloakbrowser').then(m => m.ensureBinary())"
 
 COPY src/ ./src/
 
