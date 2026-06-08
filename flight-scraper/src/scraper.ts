@@ -152,30 +152,30 @@ export async function scrapeFlightAware(flightNumber: string): Promise<FlightDet
       console.log(`Flight is ${details.status} — looking for next scheduled departure`)
 
       // FlightAware shows upcoming scheduled flights as links below the current flight
-      // Navigate to flight history page to find the next scheduled departure
-      const historyUrl = `https://www.flightaware.com/live/flight/${flightNumber}/history`
-      console.log(`Navigating to history: ${historyUrl}`)
-      await page.goto(historyUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
-      await page.waitForSelector('table, [class*="flightHistory"], [class*="historyTable"]', { timeout: 10000 }).catch(() => {})
-
-      // Find the first "Scheduled" row and extract its specific flight URL (YYYYMMDD pattern)
-      const nextUrl = await page.evaluate((): string | null => {
-        const datePattern = /\/live\/flight\/\w+\/history\/\d{8}\//
-        const rows = Array.from(document.querySelectorAll('tr, [class*="flightRow"], [class*="historyRow"]'))
-        for (const row of rows) {
-          const text = row.textContent ?? ''
-          if (/scheduled/i.test(text)) {
-            const links = Array.from(row.querySelectorAll('a[href]')) as HTMLAnchorElement[]
-            const dated = links.find(a => datePattern.test(a.href))
-            if (dated) return dated.href.replace(/\/(tracklog|route|graph).*/, '')
-          }
+      // Extract this flight's history URL components and increment the date by 1 day
+      const currentHistoryUrl = await page.evaluate((): string | null => {
+        const pattern = /\/live\/flight\/\w+\/history\/(\d{8})\/(\w+)\/(\w+)\/(\w+)/
+        const links = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[]
+        for (const a of links) {
+          const m = a.href.match(pattern)
+          if (m) return a.href.match(/.*\/history\/\d{8}\/\w+\/\w+\/\w+/)?.[0] ?? null
         }
-        // Fallback: any dated history link on the page
-        const allLinks = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[]
-        const dated = allLinks.find(a => datePattern.test(a.href))
-        return dated ? dated.href.replace(/\/(tracklog|route|graph).*/, '') : null
+        return null
       })
-      console.log('nextUrl:', nextUrl)
+
+      let nextUrl: string | null = null
+      if (currentHistoryUrl) {
+        // Parse YYYYMMDD from URL, add 1 day, build next-day URL
+        const m = currentHistoryUrl.match(/\/history\/(\d{4})(\d{2})(\d{2})\/(\w+)\/(\w+)\/(\w+)/)
+        if (m) {
+          const [, y, mo, d, time, orig, dest] = m
+          const date = new Date(`${y}-${mo}-${d}`)
+          date.setUTCDate(date.getUTCDate() + 1)
+          const nextDate = date.toISOString().slice(0, 10).replace(/-/g, '')
+          nextUrl = `https://www.flightaware.com/live/flight/${flightNumber}/history/${nextDate}/${time}/${orig}/${dest}`
+          console.log(`Next day flight URL: ${nextUrl}`)
+        }
+      }
 
       if (nextUrl) {
         console.log(`Navigating to next scheduled flight: ${nextUrl}`)
