@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+ENV CLOAKBROWSER_CACHE_DIR=/app/.cloakbrowser
+
 COPY package*.json ./
 COPY tsconfig.json ./
 

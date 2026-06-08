@@ -93,6 +93,14 @@ app.use((_req, res) => {
   res.status(404).json({ success: false, error: 'Not found' })
 })
 
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err)
+})
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason)
+})
+
 process.on('SIGTERM', async () => {
   await closeBrowser()
   process.exit(0)
