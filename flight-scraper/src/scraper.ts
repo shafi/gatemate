@@ -1,4 +1,4 @@
-import { launch } from 'cloakbrowser'
+import { chromium } from 'playwright-core'
 import type { Browser } from 'playwright-core'
 
 export interface FlightDetails {
@@ -40,19 +40,13 @@ interface ScrapedDetails {
   delay: number
 }
 
+const CDP_URL = process.env.CLOAK_CDP_URL ?? 'ws://localhost:9222'
+
 let browserInstance: Browser | null = null
 
 async function getBrowser(): Promise<Browser> {
   if (!browserInstance || !browserInstance.isConnected()) {
-    browserInstance = await launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-      ],
-    })
+    browserInstance = await chromium.connectOverCDP(CDP_URL)
   }
   return browserInstance
 }
