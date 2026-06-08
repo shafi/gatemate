@@ -1,4 +1,5 @@
-import { chromium, type Browser } from 'playwright'
+import { launch } from 'cloakbrowser'
+import type { Browser } from 'playwright-core'
 
 export interface FlightDetails {
   flightNumber: string
@@ -43,9 +44,9 @@ let browserInstance: Browser | null = null
 
 async function getBrowser(): Promise<Browser> {
   if (!browserInstance || !browserInstance.isConnected()) {
-    browserInstance = await chromium.launch({
+    browserInstance = await launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      humanize: true,
     })
   }
   return browserInstance
