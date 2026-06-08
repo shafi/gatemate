@@ -146,6 +146,71 @@ export async function scrapeFlightAware(flightNumber: string): Promise<FlightDet
       throw new Error('Could not extract flight details from page')
     }
 
+    // If this flight is already en-route or arrived, find the next scheduled departure
+    const liveStatuses = /en.?route|arrived|landed|diverted|cancelled/i
+    if (liveStatuses.test(details.status)) {
+      console.log(`Flight is ${details.status} — looking for next scheduled departure`)
+
+      // FlightAware shows upcoming scheduled flights as links below the current flight
+      const nextUrl = await page.evaluate((): string | null => {
+        // Look for a "Scheduled" link/row in the upcoming flights table
+        const links = Array.from(document.querySelectorAll('a[href*="/live/flight/"]'))
+        for (const a of links) {
+          const row = a.closest('tr') || a.closest('[class*="row"]') || a.parentElement
+          const rowText = row?.textContent ?? ''
+          if (/scheduled/i.test(rowText)) {
+            return (a as HTMLAnchorElement).href
+          }
+        }
+        // Fallback: find a "next departure" style button/link
+        const allLinks = Array.from(document.querySelectorAll('a'))
+        const nextLink = allLinks.find(a =>
+          /next.?(departure|flight)|upcoming/i.test(a.textContent ?? '')
+        )
+        return nextLink ? (nextLink as HTMLAnchorElement).href : null
+      })
+
+      if (nextUrl) {
+        console.log(`Navigating to next scheduled flight: ${nextUrl}`)
+        await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
+        await page.waitForSelector('.flightPageSummaryOrigin', { timeout: 15000 }).catch(() => {})
+
+        const next = await page.evaluate<ScrapedDetails>(() => {
+          function getText(selector: string): string {
+            const el = document.querySelector(selector)
+            return el?.textContent?.trim() ?? ''
+          }
+          const originIata = getText('.flightPageSummaryOrigin .flightPageSummaryAirportCode')
+          const destIata   = getText('.flightPageSummaryDestination .flightPageSummaryAirportCode')
+          const originFull = getText('.flightPageSummaryOrigin')
+          const destFull   = getText('.flightPageSummaryDestination')
+          const originName = originFull.replace(originIata, '').trim().split('\n').map((s: string) => s.trim()).filter(Boolean).join(', ')
+          const destName   = destFull.replace(destIata, '').trim().split('\n').map((s: string) => s.trim()).filter(Boolean).join(', ')
+          const depEl = document.querySelector('.flightPageSummaryDeparture.flightTime')
+          const arrEl = document.querySelector('.flightPageSummaryArrival.flightTime')
+          const scheduledDep = depEl?.textContent?.trim().split('(')[0].trim() ?? ''
+          const scheduledArr = arrEl?.textContent?.trim().split('(')[0].trim() ?? ''
+          const statusEl = document.querySelector('.flightPageSummaryStatus')
+          const status = statusEl?.firstChild?.textContent?.trim() ?? getText('.flightPageSummaryStatus') ?? 'Unknown'
+          const h1Text = document.querySelector('h1')?.textContent?.trim() ?? ''
+          const airlineMatch = h1Text.match(/^(.+?)\s+\d/)
+          const airline = airlineMatch ? airlineMatch[1].trim() : ''
+          const aircraft = getText('.flightPageSummaryAircraftType') || ''
+          const gateEl = document.querySelector('.flightPageAirportGate')
+          const gateMatch = gateEl?.textContent?.match(/Gate\s+(\S+)/)
+          const gate = gateMatch ? gateMatch[1] : ''
+          const termEls = document.querySelectorAll('.flightPageAirportGate')
+          let terminal = ''
+          termEls.forEach((el) => { const m = el.textContent?.match(/Terminal\s+(\S+)/); if (m) terminal = m[1] })
+          return { originIata, originName, destIata, destName, scheduledDep, scheduledArr, status, airline, aircraft, gate, terminal, delay: 0 }
+        })
+
+        if (next.originIata && next.destIata) {
+          Object.assign(details, next)
+        }
+      }
+    }
+
     const result: FlightDetails = {
       flightNumber: flightNumber.toUpperCase(),
       airline: details.airline || 'Unknown',
