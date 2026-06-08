@@ -72,7 +72,7 @@ export async function fetchFlightStatus(
   try {
     // AviationStack API
     const iataCode = flightNumber.replace(/\s/g, '').toUpperCase()
-    const url = `http://api.aviationstack.com/v1/flights?access_key=${apiKey}&flight_iata=${iataCode}&flight_date=${departureDate}`
+    const url = `https://api.aviationstack.com/v1/flights?access_key=${apiKey}&flight_iata=${iataCode}&flight_date=${departureDate}`
     const res = await fetch(url)
     if (!res.ok) throw new Error('API error')
     const data = await res.json()
