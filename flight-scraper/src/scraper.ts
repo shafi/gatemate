@@ -152,29 +152,28 @@ export async function scrapeFlightAware(flightNumber: string): Promise<FlightDet
       console.log(`Flight is ${details.status} — looking for next scheduled departure`)
 
       // FlightAware shows upcoming scheduled flights as links below the current flight
-      // Log upcoming-flight links for debugging
-      const upcomingLinks = await page.evaluate((): {href: string, text: string}[] => {
-        const links = Array.from(document.querySelectorAll('a[href*="/live/flight/"]')) as HTMLAnchorElement[]
-        return links.slice(0, 20).map(a => ({ href: a.href, text: (a.textContent ?? '').trim().replace(/\s+/g, ' ').substring(0, 80) }))
-      })
-      console.log('Upcoming links sample:', JSON.stringify(upcomingLinks))
+      // Navigate to flight history page to find the next scheduled departure
+      const historyUrl = `https://www.flightaware.com/live/flight/${flightNumber}/history`
+      console.log(`Navigating to history: ${historyUrl}`)
+      await page.goto(historyUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
+      await page.waitForSelector('table, [class*="flightHistory"], [class*="historyTable"]', { timeout: 10000 }).catch(() => {})
 
+      // Find the first "Scheduled" row and extract its flight detail URL
       const nextUrl = await page.evaluate((): string | null => {
-        // Look for a "Scheduled" link/row in the upcoming flights table
-        const links = Array.from(document.querySelectorAll('a[href*="/live/flight/"]')) as HTMLAnchorElement[]
-        for (const a of links) {
-          const row = a.closest('tr') || a.closest('[class*="row"]') || a.parentElement
-          const rowText = row?.textContent ?? ''
-          if (/scheduled/i.test(rowText)) {
-            return a.href
+        // History table rows — find the first one with "Scheduled" status
+        const rows = Array.from(document.querySelectorAll('tr, [class*="flightRow"], [class*="historyRow"]'))
+        for (const row of rows) {
+          const text = row.textContent ?? ''
+          if (/scheduled/i.test(text)) {
+            const link = row.querySelector('a[href*="/live/flight/"]') as HTMLAnchorElement | null
+            if (link) return link.href
           }
         }
-        // Fallback: find a "next departure" style button/link
-        const allLinks = Array.from(document.querySelectorAll('a')) as HTMLAnchorElement[]
-        const nextLink = allLinks.find(a =>
-          /next.?(departure|flight)|upcoming/i.test(a.textContent ?? '')
-        )
-        return nextLink ? nextLink.href : null
+        // Fallback: first link whose href matches the history pattern with a future date
+        const links = Array.from(document.querySelectorAll('a[href*="/live/flight/"]')) as HTMLAnchorElement[]
+        const historyPattern = /\/live\/flight\/\w+\/history\/\d{8}\//
+        const future = links.find(a => historyPattern.test(a.href))
+        return future ? future.href.replace(/\/tracklog.*/, '') : null
       })
       console.log('nextUrl:', nextUrl)
 
